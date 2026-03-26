@@ -1,0 +1,24 @@
+{
+  "name": "prana-virtuoso-scraper",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@sparticuz/chromium": "^143.0.4",
+    "airtable": "^0.12.2",
+    "cheerio": "^1.2.0",
+    "next": "^16.2.1",
+    "puppeteer-core": "^24.40.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/react": "^19.2.14",
+    "typescript": "^6.0.2"
+  }
+}
