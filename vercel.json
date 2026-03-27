@@ -1,0 +1,18 @@
+{
+  "crons": [
+    {
+      "path": "/api/scrape?secret=$CRON_SECRET",
+      "schedule": "0 6 * * *"
+    }
+  ],
+  "functions": {
+    "app/api/scrape/route.ts": {
+      "maxDuration": 300,
+      "memory": 1024
+    },
+    "app/api/scrape-page/route.ts": {
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  }
+}
