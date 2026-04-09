@@ -472,16 +472,14 @@ export async function updateHotelWithEnrichment(
     }
   }
 
-  // Property Tags: update if scraped tags are available and different from current
+  // Property Tags: REPLACE with freshly generated tags (not merge).
+  // The detection logic has been tightened so old false-positive tags
+  // should be dropped rather than preserved.
   if (enriched.propertyTags && enriched.propertyTags.length > 0) {
-    const currentTagSet = new Set(currentData.currentPropertyTags || []);
-    const newTagSet = new Set(enriched.propertyTags);
-    // Update if tags are different (new ones found or changed)
-    const hasNewTags = enriched.propertyTags.some(t => !currentTagSet.has(t));
-    if (currentData.currentPropertyTags.length === 0 || hasNewTags) {
-      // Merge: keep existing tags and add new ones
-      const merged = Array.from(new Set([...currentData.currentPropertyTags, ...enriched.propertyTags]));
-      updates["Property Tags"] = merged;
+    const currentSorted = [...(currentData.currentPropertyTags || [])].sort().join(",");
+    const newSorted = [...enriched.propertyTags].sort().join(",");
+    if (currentSorted !== newSorted) {
+      updates["Property Tags"] = enriched.propertyTags;
     }
   }
 
