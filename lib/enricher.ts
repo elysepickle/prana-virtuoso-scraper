@@ -34,6 +34,10 @@ export interface EnrichedHotelData {
   city?: string;
   // Country extracted from detail page location
   country?: string;
+  // Neighborhood / area name from Virtuoso page
+  neighborhood?: string;
+  // Rich property tags derived from features, description, and experiences
+  propertyTags?: string[];
 }
 
 export async function scrapeHotelDetail(
@@ -257,6 +261,19 @@ export async function scrapeHotelDetail(
           .substring(0, 300);
       }
 
+      // === NEIGHBORHOOD ===
+      let neighborhood = "";
+      const hoodMatch = text.match(
+        /Neighborhood\s*([\s\S]*?)(?=(?:Nearest Airport|Guest Rooms|Enter Dates|Address|$))/i
+      );
+      if (hoodMatch) {
+        neighborhood = hoodMatch[1]
+          .trim()
+          .split("\n")[0]
+          .trim()
+          .substring(0, 200);
+      }
+
       let nearestAirport = "";
       const airportMatch = text.match(
         /Nearest Airport\s*([\s\S]*?)(?=(?:Guest Rooms|Enter Dates|$))/i
@@ -308,6 +325,53 @@ export async function scrapeHotelDetail(
         }
       }
 
+      // === GENERATE RICH PROPERTY TAGS ===
+      // Analyze all scraped text to build a comprehensive tag array
+      const allContent = [description, hotelFeatures, experiences, advisorTip, roomTypes, vipPerks].join(" ").toLowerCase();
+      const tags: string[] = [];
+
+      // Setting & Location
+      if (allContent.match(/beach|oceanfront|beachfront|seaside|waterfront|bay view|ocean view/)) tags.push("Beachfront");
+      if (allContent.match(/mountain|alpine|hillside|hilltop|ski|slopes/)) tags.push("Mountain");
+      if (allContent.match(/island|private island|atoll|lagoon/)) tags.push("Island");
+      if (allContent.match(/countryside|vineyard|estate|rural|farm|agriturismo/)) tags.push("Countryside");
+      if (allContent.match(/city center|city centre|downtown|heart of|steps from|walking distance|central location/)) tags.push("City Center");
+      if (allContent.match(/secluded|remote|private|hideaway|retreat|escape|tucked away/)) tags.push("Secluded");
+      if (allContent.match(/rooftop|terrace|panoramic view|city view|skyline/)) tags.push("Rooftop/Views");
+      if (allContent.match(/garden|botanical|courtyard|lush|tropical garden/)) tags.push("Garden Setting");
+      if (allContent.match(/waterfront|lake|lakeside|river|canal/)) tags.push("Waterfront");
+      if (allContent.match(/cliff|cliffside|perched|overlooking|caldera/)) tags.push("Clifftop");
+
+      // Experience Type
+      if (allContent.match(/spa|wellness|treatment|massage|hammam|thermal|hydrotherapy|health club/)) tags.push("Spa & Wellness");
+      if (allContent.match(/romantic|honeymoon|couples|anniversary|intimate/)) tags.push("Romantic");
+      if (allContent.match(/family|kids|children|playground|kids club|babysitting|family-friendly/)) tags.push("Family-Friendly");
+      if (allContent.match(/golf|golf course|putting green|driving range/)) tags.push("Golf");
+      if (allContent.match(/adventure|hiking|diving|snorkeling|safari|expedition|excursion/)) tags.push("Adventure");
+      if (allContent.match(/culinary|michelin|fine dining|cooking class|wine|vineyard|tasting|gastronom/)) tags.push("Foodie/Culinary");
+      if (allContent.match(/art|gallery|museum|cultural|heritage|historic|landmark|archaeological/)) tags.push("Arts & Culture");
+      if (allContent.match(/nightlife|bar|lounge|club|scene|buzzy|social/)) tags.push("Nightlife & Social");
+
+      // Property Style
+      if (allContent.match(/boutique|intimate|small|exclusive|only \d+ room|under 50 room/)) tags.push("Boutique");
+      if (Number(numberOfRooms) > 0 && Number(numberOfRooms) <= 50) tags.push("Boutique");
+      if (allContent.match(/palazzo|castle|chateau|manor|mansion|historic|century|heritage|restored/)) tags.push("Historic/Heritage");
+      if (allContent.match(/design|architect|contemporary|modern|minimalist|sleek/)) tags.push("Design-Forward");
+      if (allContent.match(/all.inclusive|all inclusive/)) tags.push("All-Inclusive");
+      if (allContent.match(/resort|compound|grounds|acres/)) tags.push("Resort");
+      if (allContent.match(/villa|private residence|apartment|suite hotel/)) tags.push("Villa/Residence Style");
+
+      // Amenities & Features
+      if (allContent.match(/pool|infinity pool|swimming|plunge pool/)) tags.push("Pool");
+      if (allContent.match(/fitness|gym|yoga|pilates|personal trainer/)) tags.push("Fitness");
+      if (allContent.match(/pet.friendly|pet friendly|dogs? welcome|pets? allowed/)) tags.push("Pet-Friendly");
+      if (allContent.match(/business|meeting|conference|co.working|coworking/)) tags.push("Business");
+      if (allContent.match(/adults.only|adult only|no children/)) tags.push("Adults Only");
+      if (allContent.match(/eco|sustainable|green|solar|organic|conservation/)) tags.push("Eco/Sustainable");
+
+      // Deduplicate
+      const uniqueTags = tags.filter((t, i) => tags.indexOf(t) === i);
+
       return {
         vipPerks,
         description,
@@ -320,11 +384,13 @@ export async function scrapeHotelDetail(
         experiences,
         address,
         nearestAirport,
+        neighborhood,
         numberOfRooms,
         roomStyle,
         vibe,
         city,
         country,
+        propertyTags: uniqueTags,
       };
     });
 

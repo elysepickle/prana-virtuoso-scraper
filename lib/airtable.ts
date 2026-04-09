@@ -22,6 +22,7 @@ const FIELDS = {
   partnershipProgram: "fldyTYZ8wihUEOLAB", // Partnership Program
   galleryImages: "fldKtPfJ9cokERGBN",  // Gallery Images
   lastEnriched: "fldM4XExIELuKLdyv",   // Last Enriched (dateTime)
+  propertyTags: "fldAfOyINLkKVSads",     // Property Tags (multipleSelects)
 };
 
 function getAirtable() {
@@ -248,6 +249,8 @@ export interface HotelToEnrich {
   currentPerksNotes: string;
   currentCity: string;
   currentCountry: string;
+  currentNeighborhood: string;
+  currentPropertyTags: string[];
   lastEnriched: string | null;
 }
 
@@ -279,6 +282,8 @@ export async function getHotelsToEnrich(
           "Last Enriched",
           "City",
           "Country",
+          "Neighborhood / Area",
+          "Property Tags",
         ],
         pageSize: 100,
       })
@@ -290,14 +295,18 @@ export async function getHotelsToEnrich(
 
             const lastEnriched = record.get("Last Enriched") as string | null;
             const currentCity = (record.get("City") as string) || "";
+            const currentNeighborhood = (record.get("Neighborhood / Area") as string) || "";
+            const currentPropertyTags = (record.get("Property Tags") as string[]) || [];
 
-            // Include if never enriched OR enriched before the cutoff OR missing city
+            // Include if never enriched OR enriched before the cutoff OR missing city/neighborhood/tags
             const neverEnriched = !lastEnriched;
             const staleEnrichment =
               lastEnriched && new Date(lastEnriched) < cutoffDate;
             const missingCity = !currentCity;
+            const missingNeighborhood = !currentNeighborhood;
+            const missingTags = currentPropertyTags.length === 0;
 
-            if (neverEnriched || staleEnrichment || missingCity) {
+            if (neverEnriched || staleEnrichment || missingCity || missingNeighborhood || missingTags) {
               hotels.push({
                 recordId: record.id,
                 hotelName: (record.get("Hotel Name") as string) || "",
@@ -308,6 +317,8 @@ export async function getHotelsToEnrich(
                 currentPerksNotes: (record.get("Perks Notes") as string) || "",
                 currentCity,
                 currentCountry: (record.get("Country") as string) || "",
+                currentNeighborhood,
+                currentPropertyTags,
                 lastEnriched: lastEnriched || null,
               });
             }
@@ -332,11 +343,15 @@ export async function getHotelsToEnrich(
                 const scoreA =
                   (a.currentPerks ? 0 : 2) +
                   (a.currentGallery ? 0 : 1) +
-                  (a.currentNotes ? 0 : 1);
+                  (a.currentNotes ? 0 : 1) +
+                  (a.currentNeighborhood ? 0 : 1) +
+                  (a.currentPropertyTags.length > 0 ? 0 : 1);
                 const scoreB =
                   (b.currentPerks ? 0 : 2) +
                   (b.currentGallery ? 0 : 1) +
-                  (b.currentNotes ? 0 : 1);
+                  (b.currentNotes ? 0 : 1) +
+                  (b.currentNeighborhood ? 0 : 1) +
+                  (b.currentPropertyTags.length > 0 ? 0 : 1);
                 return scoreB - scoreA;
               }
 
@@ -390,6 +405,8 @@ export async function updateHotelWithEnrichment(
     vibe?: string;
     city?: string;
     country?: string;
+    neighborhood?: string;
+    propertyTags?: string[];
   }
 ): Promise<boolean> {
   const base = getAirtable().base(BASE_ID);
@@ -445,6 +462,26 @@ export async function updateHotelWithEnrichment(
     const newGallery = enriched.galleryImages.join("\n");
     if (!currentData.currentGallery || isDifferent(currentData.currentGallery, newGallery)) {
       updates["Gallery Images"] = newGallery;
+    }
+  }
+
+  // Neighborhood: update if scraped and currently empty or different
+  if (enriched.neighborhood) {
+    if (!currentData.currentNeighborhood || isDifferent(currentData.currentNeighborhood, enriched.neighborhood)) {
+      updates["Neighborhood / Area"] = enriched.neighborhood;
+    }
+  }
+
+  // Property Tags: update if scraped tags are available and different from current
+  if (enriched.propertyTags && enriched.propertyTags.length > 0) {
+    const currentTagSet = new Set(currentData.currentPropertyTags || []);
+    const newTagSet = new Set(enriched.propertyTags);
+    // Update if tags are different (new ones found or changed)
+    const hasNewTags = enriched.propertyTags.some(t => !currentTagSet.has(t));
+    if (currentData.currentPropertyTags.length === 0 || hasNewTags) {
+      // Merge: keep existing tags and add new ones
+      const merged = Array.from(new Set([...currentData.currentPropertyTags, ...enriched.propertyTags]));
+      updates["Property Tags"] = merged;
     }
   }
 
