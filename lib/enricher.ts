@@ -341,48 +341,195 @@ export async function scrapeHotelDetail(
       }
 
       // === GENERATE RICH PROPERTY TAGS ===
-      // Analyze all scraped text to build a comprehensive tag array
+      // Analyze all scraped text to build a comprehensive tag array.
+      // Uses STRICT matching — requires strong signals (multiple keywords,
+      // specific phrases, or feature-list mentions) to avoid false positives.
       const allContent = [description, hotelFeatures, experiences, advisorTip, roomTypes, vipPerks].join(" ").toLowerCase();
+      // Features/experiences sections are higher-signal than description prose
+      const featuresContent = [hotelFeatures, experiences, vipPerks].join(" ").toLowerCase();
       const tags: string[] = [];
 
-      // Setting & Location
-      if (allContent.match(/beach|oceanfront|beachfront|seaside|waterfront|bay view|ocean view/)) tags.push("Beachfront");
-      if (allContent.match(/mountain|alpine|hillside|hilltop|ski|slopes/)) tags.push("Mountain");
-      if (allContent.match(/island|private island|atoll|lagoon/)) tags.push("Island");
-      if (allContent.match(/countryside|vineyard|estate|rural|farm|agriturismo/)) tags.push("Countryside");
-      if (allContent.match(/city center|city centre|downtown|heart of|steps from|walking distance|central location/)) tags.push("City Center");
-      if (allContent.match(/secluded|remote|private|hideaway|retreat|escape|tucked away/)) tags.push("Secluded");
-      if (allContent.match(/rooftop|terrace|panoramic view|city view|skyline/)) tags.push("Rooftop/Views");
-      if (allContent.match(/garden|botanical|courtyard|lush|tropical garden/)) tags.push("Garden Setting");
-      if (allContent.match(/waterfront|lake|lakeside|river|canal/)) tags.push("Waterfront");
-      if (allContent.match(/cliff|cliffside|perched|overlooking|caldera/)) tags.push("Clifftop");
+      // Helper: count how many of the given patterns match
+      const countMatches = (content: string, patterns: RegExp[]): number =>
+        patterns.filter(p => p.test(content)).length;
 
-      // Experience Type
-      if (allContent.match(/spa|wellness|treatment|massage|hammam|thermal|hydrotherapy|health club/)) tags.push("Spa & Wellness");
-      if (allContent.match(/romantic|honeymoon|couples|anniversary|intimate/)) tags.push("Romantic");
-      if (allContent.match(/family|kids|children|playground|kids club|babysitting|family-friendly/)) tags.push("Family-Friendly");
-      if (allContent.match(/golf|golf course|putting green|driving range/)) tags.push("Golf");
-      if (allContent.match(/adventure|hiking|diving|snorkeling|safari|expedition|excursion/)) tags.push("Adventure");
-      if (allContent.match(/culinary|michelin|fine dining|cooking class|wine|vineyard|tasting|gastronom/)) tags.push("Foodie/Culinary");
-      if (allContent.match(/art|gallery|museum|cultural|heritage|historic|landmark|archaeological/)) tags.push("Arts & Culture");
-      if (allContent.match(/nightlife|bar|lounge|club|scene|buzzy|social/)) tags.push("Nightlife & Social");
+      // === SETTING & LOCATION (strictest — most prone to false positives) ===
 
-      // Property Style
-      if (allContent.match(/boutique|intimate|small|exclusive|only \d+ room|under 50 room/)) tags.push("Boutique");
-      if (Number(numberOfRooms) > 0 && Number(numberOfRooms) <= 50) tags.push("Boutique");
-      if (allContent.match(/palazzo|castle|chateau|manor|mansion|historic|century|heritage|restored/)) tags.push("Historic/Heritage");
-      if (allContent.match(/design|architect|contemporary|modern|minimalist|sleek/)) tags.push("Design-Forward");
-      if (allContent.match(/all.inclusive|all inclusive/)) tags.push("All-Inclusive");
-      if (allContent.match(/resort|compound|grounds|acres/)) tags.push("Resort");
-      if (allContent.match(/villa|private residence|apartment|suite hotel/)) tags.push("Villa/Residence Style");
+      // Beachfront: must have explicit beach-setting language, not just "ocean view" from a city rooftop
+      if (allContent.match(/\b(beachfront|oceanfront|on the beach|beach resort|seaside resort|private beach|beach club)\b/)) {
+        tags.push("Beachfront");
+      } else if (countMatches(allContent, [/\bbeach\b/, /\bocean view\b/, /\bseaside\b/, /\bbay view\b/]) >= 2) {
+        tags.push("Beachfront");
+      }
 
-      // Amenities & Features
-      if (allContent.match(/pool|infinity pool|swimming|plunge pool/)) tags.push("Pool");
-      if (allContent.match(/fitness|gym|yoga|pilates|personal trainer/)) tags.push("Fitness");
-      if (allContent.match(/pet.friendly|pet friendly|dogs? welcome|pets? allowed/)) tags.push("Pet-Friendly");
-      if (allContent.match(/business|meeting|conference|co.working|coworking/)) tags.push("Business");
-      if (allContent.match(/adults.only|adult only|no children/)) tags.push("Adults Only");
-      if (allContent.match(/eco|sustainable|green|solar|organic|conservation/)) tags.push("Eco/Sustainable");
+      // Mountain: must be about the mountain SETTING, not just mentioning a mountain view from a city hotel
+      if (allContent.match(/\b(mountain resort|alpine|ski resort|mountain retreat|in the mountains|mountain lodge|hillside retreat|hilltop retreat)\b/)) {
+        tags.push("Mountain");
+      } else if (countMatches(allContent, [/\bmountain\b/, /\balpine\b/, /\bski\b/, /\bslopes\b/, /\bhillside\b/]) >= 2) {
+        tags.push("Mountain");
+      }
+
+      // Island: must actually be ON an island
+      if (allContent.match(/\b(private island|island resort|on the island|island retreat|atoll|island getaway)\b/)) {
+        tags.push("Island");
+      }
+
+      // Countryside: must be a rural/estate setting, not just mentioning a vineyard dinner
+      if (allContent.match(/\b(countryside|country estate|rural|agriturismo|farmhouse|country house|in the countryside)\b/)) {
+        tags.push("Countryside");
+      } else if (countMatches(allContent, [/\bvineyard\b/, /\bestate\b/, /\brural\b/, /\bfarm\b/, /\bacres of\b/]) >= 2) {
+        tags.push("Countryside");
+      }
+
+      // City Center: strong urban-core signals
+      if (allContent.match(/\b(city center|city centre|downtown|in the heart of|steps from .{0,20}(square|piazza|plaza|boulevard)|central location|centrally located)\b/)) {
+        tags.push("City Center");
+      }
+
+      // Secluded: must be about isolation/remoteness, not just marketing fluff like "private balcony"
+      if (allContent.match(/\b(secluded|remote location|private island|hideaway|tucked away|off the beaten|middle of nowhere|isolated)\b/)) {
+        tags.push("Secluded");
+      }
+
+      // Rooftop/Views: needs a rooftop venue or panoramic feature, not just "terrace" (too common)
+      if (allContent.match(/\b(rooftop bar|rooftop pool|rooftop restaurant|rooftop terrace|panoramic view|360.degree|skyline view|rooftop lounge)\b/)) {
+        tags.push("Rooftop/Views");
+      }
+
+      // Garden Setting: must have significant garden/botanical focus
+      if (allContent.match(/\b(botanical garden|tropical garden|garden setting|lush garden|acres of garden|landscaped garden|garden estate|set in .{0,15}garden)\b/)) {
+        tags.push("Garden Setting");
+      } else if (countMatches(allContent, [/\bgarden\b/, /\bbotanical\b/, /\bcourtyard garden\b/, /\blush\b/]) >= 2) {
+        tags.push("Garden Setting");
+      }
+
+      // Waterfront: lake/river/canal-side (distinct from beachfront)
+      if (allContent.match(/\b(lakeside|lake view|on the lake|riverfront|river view|on the river|canalside|canal view|lakefront|waterfront(?! .*city))\b/)) {
+        tags.push("Waterfront");
+      }
+
+      // Clifftop: dramatic elevated coastal/volcanic setting
+      if (allContent.match(/\b(clifftop|cliff.?side|perched (?:on|above|atop)|caldera|cliffside)\b/)) {
+        tags.push("Clifftop");
+      }
+
+      // === EXPERIENCE TYPE (moderate strictness) ===
+
+      // Spa & Wellness: only if spa is a notable feature, not just "spa bath" in room
+      if (featuresContent.match(/\bspa\b/) || allContent.match(/\b(wellness center|wellness centre|spa & wellness|full.service spa|signature spa|hammam|thermal bath|hydrotherapy|spa treatment|spa facility|spa suite)\b/)) {
+        tags.push("Spa & Wellness");
+      }
+
+      // Romantic: needs explicit romantic positioning
+      if (allContent.match(/\b(romantic|honeymoon|couples retreat|anniversary|lovers|romance package)\b/)) {
+        tags.push("Romantic");
+      }
+
+      // Family-Friendly: must have actual family facilities
+      if (allContent.match(/\b(kids club|kids' club|children's program|family-friendly|family friendly|playground|babysitting|family suite|children welcome|family program)\b/)) {
+        tags.push("Family-Friendly");
+      } else if (countMatches(allContent, [/\bfamil(y|ies)\b/, /\bkids\b/, /\bchildren\b/]) >= 2) {
+        tags.push("Family-Friendly");
+      }
+
+      // Golf: must have golf on-site or be known as a golf destination
+      if (allContent.match(/\b(golf course|golf club|putting green|driving range|golf resort|championship golf|hole golf)\b/)) {
+        tags.push("Golf");
+      }
+
+      // Adventure: must offer actual adventure activities
+      if (countMatches(allContent, [/\bhiking\b/, /\bdiving\b/, /\bsnorkeling\b/, /\bsafari\b/, /\bexpedition\b/, /\bkayak\b/, /\brafting\b/, /\bzip.?line\b/, /\brock climbing\b/, /\bsurfing\b/]) >= 2) {
+        tags.push("Adventure");
+      } else if (allContent.match(/\b(safari|expedition|adventure resort|adventure activities)\b/)) {
+        tags.push("Adventure");
+      }
+
+      // Foodie/Culinary: must have notable culinary focus
+      if (allContent.match(/\b(michelin|cooking class|culinary program|wine cellar|wine tasting|sommelier|gastronom|farm.to.table|chef's table)\b/)) {
+        tags.push("Foodie/Culinary");
+      } else if (countMatches(allContent, [/\bfine dining\b/, /\bculinary\b/, /\bwine\b/, /\btasting\b/, /\brestaurant\b/]) >= 3) {
+        tags.push("Foodie/Culinary");
+      }
+
+      // Arts & Culture: must have dedicated cultural programming or be in a cultural landmark
+      if (allContent.match(/\b(art collection|art gallery|museum|cultural program|art.inspired|arts district|archaeological|cultural heritage)\b/)) {
+        tags.push("Arts & Culture");
+      } else if (countMatches(allContent, [/\bart\b/, /\bgallery\b/, /\bmuseum\b/, /\bcultural\b/]) >= 2) {
+        tags.push("Arts & Culture");
+      }
+
+      // Nightlife & Social: must have actual nightlife venues
+      if (allContent.match(/\b(rooftop bar|cocktail bar|lounge bar|nightclub|live music|dj|buzzy|vibrant nightlife|social scene)\b/)) {
+        tags.push("Nightlife & Social");
+      } else if (countMatches(allContent, [/\bbar\b/, /\blounge\b/, /\bcocktail\b/, /\bnightlife\b/]) >= 2) {
+        tags.push("Nightlife & Social");
+      }
+
+      // === PROPERTY STYLE ===
+
+      // Boutique: room count is the strongest signal; or explicit "boutique" branding
+      if (Number(numberOfRooms) > 0 && Number(numberOfRooms) <= 50) {
+        tags.push("Boutique");
+      } else if (allContent.match(/\b(boutique hotel|boutique property|intimate hotel)\b/)) {
+        tags.push("Boutique");
+      }
+
+      // Historic/Heritage: must reference actual historic architecture/era
+      if (allContent.match(/\b(palazzo|castle|château|chateau|manor house|mansion|18th.century|19th.century|17th.century|16th.century|15th.century|heritage building|historic landmark|restored .{0,20}(building|palace|hotel|villa)|listed building)\b/)) {
+        tags.push("Historic/Heritage");
+      } else if (countMatches(allContent, [/\bhistoric\b/, /\bheritage\b/, /\bcentury\b/, /\brestored\b/]) >= 2) {
+        tags.push("Historic/Heritage");
+      }
+
+      // Design-Forward: must emphasize design as a core identity
+      if (allContent.match(/\b(design hotel|design.forward|architect.designed|contemporary design|minimalist design|avant.garde|design district|iconic design)\b/)) {
+        tags.push("Design-Forward");
+      } else if (countMatches(allContent, [/\barchitect\b/, /\bcontemporary\b/, /\bminimalist\b/, /\bdesign\b/]) >= 2) {
+        tags.push("Design-Forward");
+      }
+
+      // All-Inclusive: very specific
+      if (allContent.match(/\b(all.inclusive|all inclusive)\b/)) tags.push("All-Inclusive");
+
+      // Resort: must be an actual resort property, not just have "grounds"
+      if (allContent.match(/\b(resort|resort & spa|beach resort|golf resort|ski resort|island resort|luxury resort)\b/)) {
+        tags.push("Resort");
+      }
+
+      // Villa/Residence Style: must offer villa or residence-style accommodation
+      if (allContent.match(/\b(private villa|villa accommodation|residence style|serviced apartment|villa suite|pool villa|villa resort)\b/)) {
+        tags.push("Villa/Residence Style");
+      }
+
+      // === AMENITIES & FEATURES (check features sections first for higher signal) ===
+
+      // Pool: look in features primarily, but accept strong description signals too
+      if (featuresContent.match(/\bpool\b/) || allContent.match(/\b(infinity pool|rooftop pool|outdoor pool|indoor pool|plunge pool|swimming pool|pool deck|pool area|heated pool)\b/)) {
+        tags.push("Pool");
+      }
+
+      // Fitness: must be in features or explicitly described
+      if (featuresContent.match(/\b(fitness|gym|yoga)\b/) || allContent.match(/\b(fitness center|fitness centre|state.of.the.art gym|yoga studio|pilates|personal trainer)\b/)) {
+        tags.push("Fitness");
+      }
+
+      // Pet-Friendly: very specific
+      if (allContent.match(/\b(pet.friendly|pet friendly|dogs? welcome|pets? (allowed|welcome)|pet amenities|pet program)\b/)) {
+        tags.push("Pet-Friendly");
+      }
+
+      // Business: must have actual business facilities
+      if (allContent.match(/\b(business center|business centre|meeting room|conference room|conference facilit|boardroom|co.?working space)\b/)) {
+        tags.push("Business");
+      }
+
+      // Adults Only: very specific
+      if (allContent.match(/\b(adults.only|adult.only|adults only|no children|18\+|over 18)\b/)) tags.push("Adults Only");
+
+      // Eco/Sustainable: must have genuine sustainability commitment
+      if (allContent.match(/\b(sustainable|sustainability|eco.friendly|eco.resort|solar.powered|carbon neutral|green certified|leed|conservation program|eco.conscious)\b/)) {
+        tags.push("Eco/Sustainable");
+      }
 
       // Deduplicate
       const uniqueTags = tags.filter((t, i) => tags.indexOf(t) === i);
