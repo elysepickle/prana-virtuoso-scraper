@@ -565,6 +565,105 @@ export async function scrapeHotelDetail(
   }
 }
 
+// The 30 valid property tag options — used to validate AI responses
+const VALID_PROPERTY_TAGS = [
+  // Setting
+  "Beachfront", "Mountain", "Island", "Countryside", "City Center",
+  "Secluded", "Rooftop/Views", "Garden Setting", "Waterfront", "Clifftop",
+  // Experience
+  "Spa & Wellness", "Romantic", "Family-Friendly", "Golf", "Adventure",
+  "Foodie/Culinary", "Arts & Culture", "Nightlife & Social",
+  // Style
+  "Boutique", "Historic/Heritage", "Design-Forward", "All-Inclusive",
+  "Resort", "Villa/Residence Style",
+  // Amenities
+  "Pool", "Fitness", "Pet-Friendly", "Business", "Adults Only", "Eco/Sustainable",
+];
+
+/**
+ * AI-powered property tag assignment.
+ * Uses Claude Haiku to suggest property tags when regex detection
+ * produces thin results (< 3 tags). Validates AI output against
+ * the known tag list to prevent hallucinated tags.
+ */
+export async function assignPropertyTagsViaAI(
+  hotelName: string,
+  city: string,
+  country: string,
+  regexTags: string[],
+  description?: string,
+  features?: string
+): Promise<string[]> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.log("[AI Tags] No ANTHROPIC_API_KEY, skipping AI tag assignment");
+    return regexTags;
+  }
+
+  try {
+    const descSnippet = description ? description.substring(0, 500) : "";
+    const featSnippet = features ? features.substring(0, 300) : "";
+    const existingTags = regexTags.length > 0 ? `\nAlready detected tags: ${regexTags.join(", ")}` : "";
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 200,
+        messages: [
+          {
+            role: "user",
+            content: `You are tagging a luxury hotel for a travel recommendation app. Based on the hotel details below, select ALL applicable tags from this exact list:
+
+SETTING: Beachfront, Mountain, Island, Countryside, City Center, Secluded, Rooftop/Views, Garden Setting, Waterfront, Clifftop
+EXPERIENCE: Spa & Wellness, Romantic, Family-Friendly, Golf, Adventure, Foodie/Culinary, Arts & Culture, Nightlife & Social
+STYLE: Boutique, Historic/Heritage, Design-Forward, All-Inclusive, Resort, Villa/Residence Style
+AMENITIES: Pool, Fitness, Pet-Friendly, Business, Adults Only, Eco/Sustainable
+
+Hotel: "${hotelName}" in ${city}, ${country}
+${descSnippet ? `Description: ${descSnippet}` : ""}
+${featSnippet ? `Features: ${featSnippet}` : ""}
+${existingTags}
+
+Reply with ONLY a comma-separated list of applicable tags from the list above. Use the EXACT tag names. Be selective — only include tags that genuinely apply. Do not explain.`,
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      console.error(`[AI Tags] API error: ${response.status}`);
+      return regexTags;
+    }
+
+    const data = await response.json();
+    const text = data?.content?.[0]?.text?.trim() || "";
+
+    if (!text) return regexTags;
+
+    // Parse the comma-separated response and validate each tag
+    const aiTags = text
+      .split(",")
+      .map((t: string) => t.trim())
+      .filter((t: string) => VALID_PROPERTY_TAGS.includes(t));
+
+    if (aiTags.length === 0) return regexTags;
+
+    // Merge: AI tags + regex tags, deduplicated
+    const merged = Array.from(new Set([...regexTags, ...aiTags]));
+    console.log(`[AI Tags] ${hotelName}: regex=${regexTags.length} → AI added ${merged.length - regexTags.length} → total=${merged.length} (${merged.join(", ")})`);
+    return merged;
+  } catch (err: any) {
+    console.error(`[AI Tags] Error for ${hotelName}: ${err.message}`);
+    return regexTags;
+  }
+}
+
 /**
  * AI-powered neighborhood assignment.
  * Uses Claude Haiku to determine the neighborhood/area for a hotel

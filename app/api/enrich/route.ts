@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { scrapeHotelDetail, assignNeighborhoodViaAI } from "@/lib/enricher";
+import { scrapeHotelDetail, assignNeighborhoodViaAI, assignPropertyTagsViaAI } from "@/lib/enricher";
 import {
   getHotelsToEnrich,
   updateHotelWithEnrichment,
@@ -77,6 +77,20 @@ export async function GET(req: NextRequest) {
           if (aiNeighborhood) {
             enrichedData.neighborhood = aiNeighborhood;
           }
+        }
+
+        // AI property tag backfill: if regex detected fewer than 3 tags,
+        // ask Claude to fill in what the regex missed
+        if (!enrichedData.propertyTags || enrichedData.propertyTags.length < 3) {
+          const aiTags = await assignPropertyTagsViaAI(
+            hotel.hotelName,
+            hotel.currentCity || enrichedData.city || "",
+            hotel.currentCountry || enrichedData.country || "",
+            enrichedData.propertyTags || [],
+            enrichedData.description,
+            enrichedData.hotelFeatures
+          );
+          enrichedData.propertyTags = aiTags;
         }
 
         const updated = await updateHotelWithEnrichment(
