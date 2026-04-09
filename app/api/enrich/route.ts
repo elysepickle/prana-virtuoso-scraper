@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { scrapeHotelDetail } from "@/lib/enricher";
+import { scrapeHotelDetail, assignNeighborhoodViaAI } from "@/lib/enricher";
 import {
   getHotelsToEnrich,
   updateHotelWithEnrichment,
@@ -63,6 +63,20 @@ export async function GET(req: NextRequest) {
           skipped++;
           details.push({ hotel: hotel.hotelName, status: "no_data" });
           continue;
+        }
+
+        // AI neighborhood backfill: if Virtuoso didn't provide a neighborhood
+        // and the hotel doesn't already have one, ask Claude to assign it
+        if (!enrichedData.neighborhood && !hotel.currentNeighborhood) {
+          const aiNeighborhood = await assignNeighborhoodViaAI(
+            hotel.hotelName,
+            hotel.currentCity || enrichedData.city || "",
+            hotel.currentCountry || enrichedData.country || "",
+            enrichedData.description
+          );
+          if (aiNeighborhood) {
+            enrichedData.neighborhood = aiNeighborhood;
+          }
         }
 
         const updated = await updateHotelWithEnrichment(

@@ -262,16 +262,31 @@ export async function scrapeHotelDetail(
       }
 
       // === NEIGHBORHOOD ===
+      // Virtuoso pages show neighborhood as a short label after the heading.
+      // Some have a clean name ("Spagna", "Trastevere"), others have a short
+      // descriptive phrase ("Near the Spanish Steps"). We want either — the AI
+      // can work with both for location-based recommendations.
       let neighborhood = "";
       const hoodMatch = text.match(
         /Neighborhood\s*([\s\S]*?)(?=(?:Nearest Airport|Guest Rooms|Enter Dates|Address|$))/i
       );
       if (hoodMatch) {
-        neighborhood = hoodMatch[1]
-          .trim()
-          .split("\n")[0]
-          .trim()
-          .substring(0, 200);
+        // Take just the first line — that's the neighborhood label
+        let raw = hoodMatch[1].trim().split("\n")[0].trim();
+        // Strip leading punctuation or numbering artifacts
+        raw = raw.replace(/^[\.\,\:\;\-\s]+/, "").trim();
+        // If it's unreasonably long (>80 chars), it's probably page junk —
+        // try to extract just a meaningful opening phrase
+        if (raw.length > 80) {
+          // Cut at the first sentence boundary or period
+          const sentenceEnd = raw.match(/^(.{10,75}?)[\.;,](?:\s|$)/);
+          raw = sentenceEnd ? sentenceEnd[1].trim() : raw.substring(0, 80).trim();
+        }
+        // Skip if it looks like UI text or irrelevant content
+        const junkPatterns = /^(its \d|featuring|book now|enter dates|view |click|rooms feature)/i;
+        if (raw.length >= 2 && !junkPatterns.test(raw)) {
+          neighborhood = raw;
+        }
       }
 
       let nearestAirport = "";
@@ -400,5 +415,65 @@ export async function scrapeHotelDetail(
     return null;
   } finally {
     await browser.close();
+  }
+}
+
+/**
+ * AI-powered neighborhood assignment.
+ * Uses Claude Haiku to determine the neighborhood/area for a hotel
+ * based on its name, city, country, and description.
+ * Falls back gracefully if no API key is available.
+ */
+export async function assignNeighborhoodViaAI(
+  hotelName: string,
+  city: string,
+  country: string,
+  description?: string
+): Promise<string> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.log("[AI Neighborhood] No ANTHROPIC_API_KEY, skipping AI assignment");
+    return "";
+  }
+
+  try {
+    const descSnippet = description ? description.substring(0, 300) : "";
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 60,
+        messages: [
+          {
+            role: "user",
+            content: `What neighborhood or area is the hotel "${hotelName}" located in within ${city}, ${country}? Reply with ONLY the neighborhood/area name — no explanation, no punctuation, no quotes. If it's a well-known named neighborhood, use that (e.g. "Trastevere", "Spagna", "Monti"). If not, give a short location description (e.g. "Near Piazza del Popolo", "Historic Center"). If you genuinely don't know, reply with just "Unknown".${descSnippet ? `\n\nHotel description: ${descSnippet}` : ""}`,
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      console.error(`[AI Neighborhood] API error: ${response.status}`);
+      return "";
+    }
+
+    const data = await response.json();
+    const text = data?.content?.[0]?.text?.trim() || "";
+
+    // Validate the response
+    if (!text || text.toLowerCase() === "unknown" || text.length > 80) {
+      return "";
+    }
+
+    console.log(`[AI Neighborhood] ${hotelName} → ${text}`);
+    return text;
+  } catch (err: any) {
+    console.error(`[AI Neighborhood] Error for ${hotelName}: ${err.message}`);
+    return "";
   }
 }
